@@ -1,278 +1,133 @@
-Вот реализация игры в стиле Crossy Road с 3D-эффектами и анимациями:
-
-```html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>3D Crossy Space</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: #1a1a2e;
-            font-family: 'Arial', sans-serif;
-        }
-
-        #gameContainer {
-            perspective: 1000px;
-            height: 100vh;
-            background: linear-gradient(45deg, #1a1a2e, #16213e);
-            overflow: hidden;
-        }
-
-        .gameWorld {
-            position: relative;
-            height: 100vh;
-            transform-style: preserve-3d;
-            transform: rotateX(60deg) translateZ(-500px);
-        }
-
-        .tile {
-            position: absolute;
-            width: 60px;
-            height: 60px;
-            background: #ffffff15;
-            border: 1px solid #ffffff30;
-            transform-style: preserve-3d;
-        }
-
-        .player {
-            position: absolute;
-            width: 40px;
-            height: 40px;
-            background: #00ffff;
-            border-radius: 5px;
-            transition: all 0.3s;
-            transform-style: preserve-3d;
-            box-shadow: 0 0 20px #00ffff;
-            animation: float 2s ease-in-out infinite;
-        }
-
-        .obstacle {
-            position: absolute;
-            width: 60px;
-            height: 40px;
-            background: #ff4444;
-            border-radius: 5px;
-            transform-style: preserve-3d;
-            box-shadow: 0 5px 15px rgba(255, 68, 68, 0.5);
-        }
-
-        .coin {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            background: #ffd700;
-            border-radius: 50%;
-            animation: spin 2s linear infinite;
-        }
-
-        #hud {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            color: white;
-            font-size: 24px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-        }
-
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .trail {
-            position: absolute;
-            background: #00ffff;
-            opacity: 0.5;
-            border-radius: 50%;
-            pointer-events: none;
-        }
-    </style>
+    <!-- ... (стили остаются без изменений) ... -->
 </head>
 <body>
-    <div id="hud">Счёт: <span id="score">0</span></div>
-    <div id="gameContainer">
-        <div class="gameWorld" id="gameWorld"></div>
-    </div>
+    <!-- ... (HTML-структура остаётся прежней) ... -->
 
     <script>
-        const GRID_SIZE = 60;
-        let playerPos = {x: 5, y: 0};
-        let score = 0;
-        let isMoving = false;
-        let trails = [];
+        // Конфигурация игры
+        const config = {
+            minBet: 10,
+            maxBet: 10000,
+            minBombs: 1,
+            maxBombs: 24,
+            gridSize: 5,
+            initialBalance: 1000
+        };
 
-        function createWorld() {
-            const world = document.getElementById('gameWorld');
-            // Создаем базовые тайлы
-            for(let z = -5; z < 15; z++) {
-                for(let x = -5; x < 15; x++) {
-                    const tile = document.createElement('div');
-                    tile.className = 'tile';
-                    tile.style.transform = `translate3D(
-                        ${x * GRID_SIZE}px, 
-                        ${z * GRID_SIZE}px, 
-                        0)`;
-                    world.appendChild(tile);
-                }
-            }
-            // Создаем игрока
-            const player = document.createElement('div');
-            player.className = 'player';
-            updatePlayerPosition(player);
-            world.appendChild(player);
+        // Состояние игры
+        const state = {
+            bet: 100,
+            bombs: 5,
+            multiplier: 1,
+            revealed: 0,
+            gameActive: false,
+            cells: [],
+            balance: config.initialBalance,
+            maxWin: 5000,
+            currentMultipliers: [1.2, 1.5, 2.0, 3.0],
+            currentWin: 0,
+            starLevel: 4 // Начинаем с 4 звезд
+        };
+
+        // Элементы DOM
+        const elements = {
+            // ... (остальные элементы) ...
+            infoCards: [
+                document.getElementById('mult-1'),
+                document.getElementById('mult-2'),
+                document.getElementById('mult-3'),
+                document.getElementById('mult-4')
+            ],
+            infoLabels: [
+                document.querySelector('.info-card:nth-child(1) .info-label'),
+                document.querySelector('.info-card:nth-child(2) .info-label'),
+                document.querySelector('.info-card:nth-child(3) .info-label'),
+                document.querySelector('.info-card:nth-child(4) .info-label')
+            ]
+        };
+
+        // Расчет множителей с динамическими звездами
+        function calculateMultipliers() {
+            const bombCount = state.bombs;
             
-            generateObstacles();
-            generateCoins();
+            if (bombCount === 24) {
+                state.currentMultipliers = [5.88, 0, 0, 0];
+            } else {
+                const base = 1 + (bombCount * 0.12);
+                state.currentMultipliers = [
+                    parseFloat((base * 0.5).toFixed(2)),
+                    parseFloat((base * 0.75).toFixed(2)),
+                    parseFloat((base * 1.0).toFixed(2)),
+                    parseFloat((base * 1.5).toFixed(2))
+                ];
+            }
+            
+            updateMultipliersDisplay();
         }
 
-        function updatePlayerPosition(player) {
-            player.style.transform = `translate3D(
-                ${playerPos.x * GRID_SIZE + 10}px, 
-                ${playerPos.y * GRID_SIZE + 10}px, 
-                50px)`;
-        }
-
-        function generateObstacles() {
-            const world = document.getElementById('gameWorld');
-            for(let z = 1; z < 15; z++) {
-                if(Math.random() < 0.6) {
-                    const obstacle = document.createElement('div');
-                    obstacle.className = 'obstacle';
-                    obstacle.style.transform = `translate3D(
-                        ${Math.floor(Math.random() * 10) * GRID_SIZE}px, 
-                        ${z * GRID_SIZE}px, 
-                        30px)`;
-                    world.appendChild(obstacle);
-                }
+        // Обновление отображения множителей с новыми звездами
+        function updateMultipliersDisplay() {
+            for (let i = 0; i < 4; i++) {
+                elements.infoLabels[i].textContent = `${state.starLevel + i}⭐`;
+                elements.infoCards[i].textContent = state.currentMultipliers[i] || '-';
             }
         }
 
-        function generateCoins() {
-            const world = document.getElementById('gameWorld');
-            for(let z = 1; z < 15; z++) {
-                if(Math.random() < 0.3) {
-                    const coin = document.createElement('div');
-                    coin.className = 'coin';
-                    coin.style.transform = `translate3D(
-                        ${Math.floor(Math.random() * 10) * GRID_SIZE + 20}px, 
-                        ${z * GRID_SIZE + 20}px, 
-                        40px)`;
-                    world.appendChild(coin);
-                }
-            }
-        }
-
-        function movePlayer(dx, dy) {
-            if(isMoving) return;
-            isMoving = true;
-
-            // Создаем шлейф
-            const trail = document.createElement('div');
-            trail.className = 'trail';
-            trail.style.width = '20px';
-            trail.style.height = '20px';
-            trail.style.transform = `translate3D(
-                ${playerPos.x * GRID_SIZE + 30}px, 
-                ${playerPos.y * GRID_SIZE + 30}px, 
-                0)`;
-            document.getElementById('gameWorld').appendChild(trail);
-            trails.push(trail);
-
-            playerPos.x += dx;
-            playerPos.y += dy;
-
-            // Проверка столкновений
-            const obstacles = document.getElementsByClassName('obstacle');
-            for(let obs of obstacles) {
-                const rect = obs.getBoundingClientRect();
-                const playerRect = document.querySelector('.player').getBoundingClientRect();
+        // Обработка клика по клетке
+        function handleCellClick(index) {
+            if (!state.gameActive || state.cells[index].revealed) return;
+            
+            const cell = state.cells[index];
+            cell.revealed = true;
+            cell.element.classList.add('revealed', 'reveal-animation');
+            
+            if (cell.isBomb) {
+                cell.element.textContent = '💣';
+                cell.element.classList.add('bomb');
+                endGame(false);
+            } else {
+                state.revealed++;
                 
-                if(!(playerRect.right < rect.left || 
-                     playerRect.left > rect.right || 
-                     playerRect.bottom < rect.top || 
-                     playerRect.top > rect.bottom)) {
-                    gameOver();
-                    return;
-                }
-            }
-
-            // Сбор монет
-            const coins = document.getElementsByClassName('coin');
-            for(let coin of coins) {
-                const rect = coin.getBoundingClientRect();
-                const playerRect = document.querySelector('.player').getBoundingClientRect();
+                // Увеличиваем уровень звезд после каждого открытия
+                state.starLevel++;
+                calculateMultipliers();
                 
-                if(!(playerRect.right < rect.left || 
-                     playerRect.left > rect.right || 
-                     playerRect.bottom < rect.top || 
-                     playerRect.top > rect.bottom)) {
-                    coin.remove();
-                    score += 100;
-                    document.getElementById('score').textContent = score;
+                if (state.bombs === 24) {
+                    state.multiplier = 5.88;
+                } else {
+                    state.multiplier = state.currentMultipliers[Math.min(state.revealed-1, 3)];
+                }
+                
+                cell.element.textContent = '⭐';
+                cell.element.classList.add('star');
+                cell.starsLabel.textContent = `+${Math.floor(state.bet * state.multiplier)}`;
+                
+                updateCurrentWin();
+                
+                if (state.revealed >= 1) {
+                    elements.cashoutBtn.classList.remove('btn-disabled');
+                    elements.cashoutBtn.classList.add('btn-success');
+                    elements.cashoutBtn.disabled = false;
+                }
+                
+                if (state.revealed === (config.gridSize * config.gridSize - state.bombs)) {
+                    endGame(true);
                 }
             }
-
-            updatePlayerPosition(document.querySelector('.player'));
-            setTimeout(() => isMoving = false, 300);
         }
 
-        function gameOver() {
-            alert(`Game Over! Score: ${score}`);
-            location.reload();
+        // Начало игры
+        function startGame() {
+            // ... (предыдущий код) ...
+            state.starLevel = 4; // Сбрасываем до 4 звезд
+            calculateMultipliers();
+            // ... (остальной код) ...
         }
 
-        // Управление
-        document.addEventListener('keydown', (e) => {
-            switch(e.key) {
-                case 'ArrowUp': movePlayer(0, -1); break;
-                case 'ArrowDown': movePlayer(0, 1); break;
-                case 'ArrowLeft': movePlayer(-1, 0); break;
-                case 'ArrowRight': movePlayer(1, 0); break;
-            }
-        });
-
-        // Инициализация
-        createWorld();
-
-        // Анимация шлейфа
-        setInterval(() => {
-            trails.forEach((t, i) => {
-                t.style.opacity = parseFloat(t.style.opacity || 1) - 0.05;
-                if(t.style.opacity <= 0) {
-                    t.remove();
-                    trails.splice(i, 1);
-                }
-            });
-        }, 100);
+        // ... (остальные функции остаются без изменений) ...
     </script>
 </body>
 </html>
-```
-
-Особенности этой реализации:
-1. Псевдо-3D пространство с перспективой
-2. Плавная анимация движения персонажа
-3. Система шлейфа за игроком
-4. Генерация случайных препятствий и монет
-5. Система подсчёта очков
-6. Столкновения с препятствиями
-7. Сбор монет для увеличения счёта
-8. Плавающая анимация персонажа
-9. Отзывчивое управление стрелками
-10. Динамический фон с градиентами
-
-Как играть:
-- Используйте стрелки для движения
-- Избегайте красных препятствий
-- Собирайте золотые монеты для увеличения счёта
-- Пройдите как можно дальше в космическом пространстве
-
-Игра автоматически генерирует новые препятствия и монеты по мере продвижения. При столкновении с препятствием игра заканчивается, и можно начать заново.
